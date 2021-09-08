@@ -45,6 +45,10 @@ class Coinbase:
             raise Exception(f"Product {self.product} not valid")
 
     @staticmethod
+    def getProductList():
+        return cbpro.PublicClient().get_products()
+
+    @staticmethod
     def getPrice(product):
         return float(cbpro.PublicClient().get_product_ticker(product)['price'])
 
