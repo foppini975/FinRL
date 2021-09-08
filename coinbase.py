@@ -45,8 +45,12 @@ class Coinbase:
             raise Exception(f"Product {self.product} not valid")
 
     @staticmethod
-    def getProductList():
-        return cbpro.PublicClient().get_products()
+    def getProductList(products_file = None):
+        products = cbpro.PublicClient().get_products()
+        if products_file is not None:
+            with open(products_file, 'w') as fp:
+                json.dump(products, fp)
+        return products
 
     @staticmethod
     def getPrice(product):
