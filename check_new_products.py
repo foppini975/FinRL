@@ -15,6 +15,16 @@ def sendMessageToTelegram(text):
 def sendPhoto(image_filename):
     bot.sendPhoto(Secrets.TELEGRAM_CHANNEL_ID, photo=open(image_filename, 'rb'))
 
+def compareDictionaries(dict1, dict2):
+    delta = {}
+    for key in dict1:
+        if key not in dict2:
+            delta[key] = 'Removed'
+    for key in dict2:
+        if key not in dict1 or dict1[key] != dict2[key]:
+            delta[key] = dict2[key]
+    return delta
+
 PRODUCTS_FILE = 'coinbase_products.json'
 
 products = Coinbase.getProductList()
@@ -29,7 +39,7 @@ for product in products:
             New = False
             if product != last_product:
                 print(f"Product {id} changed: {last_product} -> {product}")
-                sendMessageToTelegram(f"Product {id} changed: {last_product} -> {product}")
+                sendMessageToTelegram(f"Product {id} changed: {compareDictionaries(last_product, product)}")
                 Updated = True
             continue
     if New is True:
@@ -38,9 +48,10 @@ for product in products:
         Updated = True
 
 if Updated is True:
-    sendMessageToTelegram(f"Product List Check completed, Updated={Updated}")
+    #sendMessageToTelegram(f"Product List Check completed, Updated={Updated}")
     with open(PRODUCTS_FILE, 'w') as fp:
         json.dump(products, fp)
 else:
-    sendMessageToTelegram(f"Product List Check completed, Updated={Updated}")
+    pass
+    #sendMessageToTelegram(f"Product List Check completed, Updated={Updated}")
 
