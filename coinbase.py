@@ -44,6 +44,21 @@ class Coinbase:
         if found is False:
             raise Exception(f"Product {self.product} not valid")
 
+    def authenticate(self, key, b64secret, passphrase,
+                                  api_url="https://api-public.sandbox.pro.coinbase.com"):
+        # authentication
+        self.auth_client = cbpro.AuthenticatedClient(key, b64secret, passphrase, api_url)
+
+    def getAccountId(self, currency):
+        accounts = self.auth_client.get_accounts()
+        for account in accounts:
+            if account['currency'] == currency:
+                return account['id']
+        return None
+
+    def getAccount(self, accountId):
+        return self.auth_client.get_account(accountId)
+
     @staticmethod
     def getProductList(products_file = None):
         products = cbpro.PublicClient().get_products()
@@ -60,11 +75,13 @@ class Coinbase:
         #
         # dates are datetime objects, can be crated with:
         # start_utc = datetime(2021, 1, 1)
-        #        
+        #
         start_interval = start_date - timedelta(days=moving_average)
         end_interval = None
+        # Granularity approved values: [60, 300, 900, 3600, 21600, 86400]
         Granularity_Map = {
-            60: timedelta(hours=5),          # 1 day per each call
+            60: timedelta(hours=5),          # 5 hours per each call
+            300: timedelta(hours=25),        # 25 hours per each call
             86400: timedelta(days=28 * 6 -1) # 42 weeks per each call
         }
         if granularity not in Granularity_Map:
@@ -192,6 +209,6 @@ class Coinbase:
                 # Hold
                 self.df.loc[index,'Wallet_USD'] = self.df.loc[index-1,'Wallet_USD']
                 self.df.loc[index,'Wallet_Crypto'] = self.df.loc[index-1,'Wallet_Crypto']
-                
+
     def getTicker(self):
         return self.public_client.get_product_ticker(self.product)
