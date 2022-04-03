@@ -34,18 +34,29 @@ Updated = False
 for product in products:
     id = product['id']
     New = True
+    aggregated_changes = {}
     for last_product in last_products:
         if last_product['id'] == id:
             New = False
             if product != last_product:
                 print(f"Product {id} changed: {last_product} -> {product}")
-                sendMessageToTelegram(f"Product {id} changed: {compareDictionaries(last_product, product)}")
+                #sendMessageToTelegram(f"Product {id} changed: {compareDictionaries(last_product, product)}")
+
+                delta = compareDictionaries(last_product, product)
+                for key in delta:
+                    if key in aggregated_changes:
+                        aggregated_changes[key].append(id)
+                    else:
+                        aggregated_changes[key] = [id]
+
                 Updated = True
             continue
     if New is True:
         print(f"New product: {product}")
         sendMessageToTelegram(f"New product: {product}")
         Updated = True
+if aggregated_changes:
+    sendMessageToTelegram(f"Updates: {aggregated_changes}")
 
 if Updated is True:
     #sendMessageToTelegram(f"Product List Check completed, Updated={Updated}")
