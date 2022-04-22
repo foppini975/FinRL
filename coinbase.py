@@ -212,3 +212,148 @@ class Coinbase:
 
     def getTicker(self):
         return self.public_client.get_product_ticker(self.product)
+
+class Wallet:
+    
+    CLOSE_TAG = 'Close'
+    AMOUNT_TAG = 'Amount'
+    VALUE_TAG = 'Value'
+
+    def __init__(self, cb_df, market_name, start_date = '2022-01-01'):
+        self.df = cb_df[cb_df['Time'] >= start_date][['Time', 'Close']].reset_index(drop=True)
+        self.df.rename(columns={"Close": f"{market_name} {self.CLOSE_TAG}"}, inplace=True)
+        self.df[f"{market_name} {self.AMOUNT_TAG}"] = 0
+        self.df[f"{market_name} {self.VALUE_TAG}"] = 0
+        self.start_date = start_date
+        self.market_list = [market_name]
+
+    def add_column(self, cb_df, market_name):
+        if market_name in self.market_list:
+            print(f"Error! Market {market_name} already present, skipping.")
+            return
+        new_col_close = cb_df[cb_df['Time'] >= self.start_date][['Close']].reset_index(drop=True)
+        self.df[f"{market_name} {self.CLOSE_TAG}"] = new_col_close
+        self.df[f"{market_name} {self.AMOUNT_TAG}"] = 0
+        self.df[f"{market_name} {self.VALUE_TAG}"] = 0
+        self.market_list.append(market_name)
+
+    def set_asset(self, date_string, market_name, amount):
+        self.df.loc[self.df['Time'] >= date_string, f"{market_name} {self.AMOUNT_TAG}"] = amount
+        self.refresh_wallet_value()
+
+    def refresh_wallet_value(self):
+        self.df['Wallet Value'] = 0
+        for market_name in self.market_list:
+            self.df[f"{market_name} {self.VALUE_TAG}"] = self.df[f"{market_name} {self.CLOSE_TAG}"] * self.df[f"{market_name} {self.AMOUNT_TAG}"]
+            self.df['Wallet Value'] += self.df[f"{market_name} {self.CLOSE_TAG}"] * self.df[f"{market_name} {self.AMOUNT_TAG}"]
+
+    def transfer(self, date_string, from_market, to_market, eur_amount):
+        from_market_close = self.df[self.df['Time']==datetime.strptime(date_string, '%Y-%m-%d')][f"{from_market} {self.CLOSE_TAG}"].values[0]
+        from_market_amount = eur_amount / from_market_close
+        to_market_close = self.df[self.df['Time']==datetime.strptime(date_string, '%Y-%m-%d')][f"{to_market} {self.CLOSE_TAG}"].values[0]
+        to_market_amount = eur_amount / to_market_close
+        print(f"{from_market} : from_market_close: {from_market_close} - from_market_amount: {from_market_amount} - eur: {from_market_close*from_market_amount}")
+        print(f"{to_market} : to_market_close: {to_market_close} - to_market_amount: {to_market_amount} - eur: {to_market_close*to_market_amount}")
+        self.df.loc[self.df['Time'] >= datetime.strptime(date_string, '%Y-%m-%d'), f"{from_market} {self.AMOUNT_TAG}"] -= from_market_amount
+        self.df.loc[self.df['Time'] >= datetime.strptime(date_string, '%Y-%m-%d'), f"{to_market} {self.AMOUNT_TAG}"] += to_market_amount
+        self.refresh_wallet_value()
+
+    def get_market_value(self, date_string, market_name):
+        market_close = self.df[self.df['Time']==datetime.strptime(date_string, '%Y-%m-%d')][f"{market_name} {self.CLOSE_TAG}"].values[0]
+        market_amount = self.df[self.df['Time']==datetime.strptime(date_string, '%Y-%m-%d')][f"{market_name} {self.AMOUNT_TAG}"].values[0]
+        market_value = self.df[self.df['Time']==datetime.strptime(date_string, '%Y-%m-%d')][f"{market_name} {self.VALUE_TAG}"].values[0]
+        return {'Close': market_close, 'Amount': market_amount, 'Value': market_value}
+
+    def get_final_value(self):
+        return self.df.tail(1)['Wallet Value'].values[0]
+
+    def get_total_value(self, date_string):
+        total_value = 0
+        for market in self.market_list:
+            total_value += self.get_market_value(date_string, market)['Value']
+        return total_value
+
+    def to_excel(self, excel_file_name):
+        self.df.to_excel(excel_file_name)
+
+    def simulate(self, transfer_amount_eur, threshold = 0.05):
+        """
+        transfer_amount_eur:
+                                it's the amount in EUR transfered each time
+                                - if the available amount is less than the requested amount,
+                                  then the whole available amount is transfered
+                                - if None, the whole available amount is transfered to the other market
+        """
+        anchor_ratio = None
+        return_message = None
+        # for index, row in self.df.iterrows():
+        for index in range(self.df.shape[0]):
+            row = self.df.iloc[index]
+            date_string = row['Time'].strftime("%Y-%m-%d")
+            if anchor_ratio is None:
+                anchor_ratio = row["BTC-EUR Close"] / row["ETH-EUR Close"]
+                self.df.loc[self.df['Time'] == datetime.strptime(date_string, '%Y-%m-%d'), "BTC/ETH Ratio"] = anchor_ratio
+                continue
+            current_ratio = row["BTC-EUR Close"] / row["ETH-EUR Close"]
+            self.df.loc[self.df['Time'] == datetime.strptime(date_string, '%Y-%m-%d'), "BTC/ETH Ratio"] = current_ratio
+            if current_ratio >= anchor_ratio * (1 + threshold):
+                # BTC is HIGH --> transfer from BTC to ETH
+                # transfer amount calculation
+                if transfer_amount_eur == None:
+                    # no amount requested --> we transfer the whole amount
+                    eur_amount = row["BTC-EUR Close"] * row["BTC-EUR Amount"]
+                else:
+                    # let's see if the requested amount is available
+                    if row["BTC-EUR Close"] * row["BTC-EUR Amount"] >= transfer_amount_eur:
+                        # it's sufficient
+                        eur_amount = transfer_amount_eur
+                    else:
+                        # it's not sufficient
+                        eur_amount = row["BTC-EUR Close"] * row["BTC-EUR Amount"]
+                btc_before = self.get_market_value(date_string=date_string, market_name='BTC-EUR')
+                eth_before = self.get_market_value(date_string=date_string, market_name='ETH-EUR')
+                self.transfer(date_string=date_string,
+                                from_market="BTC-EUR",
+                                to_market="ETH-EUR",
+                                eur_amount = eur_amount)
+                print(f"{date_string} : Transfering BTC --> ETH - ratio: {current_ratio:.2f} > {anchor_ratio:.2f} - Final wallet value: EUR {self.get_final_value():.2f}")
+                btc_after = self.get_market_value(date_string=date_string, market_name='BTC-EUR')
+                eth_after = self.get_market_value(date_string=date_string, market_name='ETH-EUR')
+                print(f"BTC {btc_before['Amount']:7.4f} = {btc_before['Value']:7.2f} --> {btc_after['Amount']:7.4f} = {btc_after['Value']:7.2f}")
+                print(f"ETH {eth_before['Amount']:7.4f} = {eth_before['Value']:7.2f} --> {eth_after['Amount']:7.4f} = {eth_after['Value']:7.2f}")
+                anchor_ratio = current_ratio
+                if index == self.df.shape[0]-1:
+                    # There is a transfer for today!
+                    return_message = f"{date_string} : TRANSFER from BTC to ETH (EUR {eur_amount} = BTC {btc_before['Amount']-btc_after['Amount']} = ETH {eth_after['Amount']-eth_before['Amount']})"
+            elif current_ratio <= anchor_ratio * (1 - threshold):
+                # ETH is HIGH --> transfer from ETH to BTC
+                # transfer amount calculation
+                if transfer_amount_eur == None:
+                    # no amount requested --> we transfer the whole amount
+                    eur_amount = row["ETH-EUR Close"] * row["ETH-EUR Amount"]
+                else:
+                    # let's see if the requested amount is available
+                    if row["ETH-EUR Close"] * row["ETH-EUR Amount"] >= transfer_amount_eur:
+                        # it's sufficient
+                        eur_amount = transfer_amount_eur
+                    else:
+                        # it's not sufficient
+                        eur_amount = row["ETH-EUR Close"] * row["ETH-EUR Amount"]
+                btc_before = self.get_market_value(date_string=date_string, market_name='BTC-EUR')
+                eth_before = self.get_market_value(date_string=date_string, market_name='ETH-EUR')
+                self.transfer(date_string=date_string,
+                                from_market="ETH-EUR",
+                                to_market="BTC-EUR",
+                                eur_amount = eur_amount)
+                print(f"{date_string} : Transfering ETH --> BTC - ratio: {current_ratio:.2f} < {anchor_ratio:.2f} - Final value: {self.get_final_value():.2f}")
+                btc_after = self.get_market_value(date_string=date_string, market_name='BTC-EUR')
+                eth_after = self.get_market_value(date_string=date_string, market_name='ETH-EUR')
+                print(f"BTC {btc_before['Amount']:7.4f} = {btc_before['Value']:7.2f} --> {btc_after['Amount']:7.4f} = {btc_after['Value']:7.2f}")
+                print(f"ETH {eth_before['Amount']:7.4f} = {eth_before['Value']:7.2f} --> {eth_after['Amount']:7.4f} = {eth_after['Value']:7.2f}")
+                anchor_ratio = current_ratio
+                if index == self.df.shape[0]-1:
+                    # There is a transfer for today!
+                    return_message = f"{date_string} : TRANSFER from ETH to BTC (EUR {eur_amount} = ETH {eth_before['Amount']-eth_after['Amount']} = BTC {btc_after['Amount']-btc_before['Amount']}"
+        return return_message
+
+
