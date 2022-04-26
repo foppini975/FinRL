@@ -324,7 +324,9 @@ class Wallet:
                 anchor_ratio = current_ratio
                 if index == self.df.shape[0]-1:
                     # There is a transfer for today!
-                    return_message = f"{date_string} : TRANSFER from BTC to ETH (EUR {eur_amount} = BTC {btc_before['Amount']-btc_after['Amount']} = ETH {eth_after['Amount']-eth_before['Amount']})"
+                    return_message = f"{date_string} : TRANSFER from BTC to ETH " + \
+                        "(EUR {eur_amount} = BTC {btc_before['Amount']-btc_after['Amount']} = ETH {eth_after['Amount']-eth_before['Amount']}) " + \
+                        "- ratio: {current_ratio:.4f}"
             elif current_ratio <= anchor_ratio * (1 - threshold):
                 # ETH is HIGH --> transfer from ETH to BTC
                 # transfer amount calculation
@@ -353,7 +355,9 @@ class Wallet:
                 anchor_ratio = current_ratio
                 if index == self.df.shape[0]-1:
                     # There is a transfer for today!
-                    return_message = f"{date_string} : TRANSFER from ETH to BTC (EUR {eur_amount} = ETH {eth_before['Amount']-eth_after['Amount']} = BTC {btc_after['Amount']-btc_before['Amount']}"
+                    return_message = f"{date_string} : TRANSFER from ETH to BTC " + \
+                        "(EUR {eur_amount} = ETH {eth_before['Amount']-eth_after['Amount']} = BTC {btc_after['Amount']-btc_before['Amount']}) " + \
+                        "- ratio: {current_ratio:.4f}"
         return return_message
 
 
