@@ -33,6 +33,7 @@ print(f"April 22nd, 2022 value         : EUR {t0_value:.2f}")
 current_value_no_transfer = wallet_0.get_final_value()
 
 wallet_0.transfer(date_string='2022-04-22', from_market='ETH-EUR', to_market='BTC-EUR', eur_amount=99.98)
+wallet_0.transfer(date_string='2022-04-25', from_market='BTC-EUR', to_market='ETH-EUR', eur_amount=99.99)
 
 current_value_with_transfers = wallet_0.get_final_value()
 
