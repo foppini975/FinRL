@@ -10,6 +10,9 @@ bot = telepot.Bot(Secrets.TELEGRAM_TOKEN)
 def sendMessageToTelegram(text):
     bot.sendMessage(Secrets.TELEGRAM_CHANNEL_ID, text)
 
+def sendPhoto(image_filename):
+    bot.sendPhoto(Secrets.TELEGRAM_CHANNEL_ID, photo=open(image_filename, 'rb'))
+
 cb_btc = Coinbase('BTC-EUR', logging_level = logging.WARNING)
 today_datetime = datetime.combine(date.today(), datetime.min.time())
 cb_btc.loadHistory(datetime(2015, 5, 1), today_datetime)
@@ -54,3 +57,33 @@ print(f"Gain with simulation           : {gain_percent_with_simulation:.1f}%")
 print("\n")
 print(f"Today's value with transfers   : EUR {current_value_with_transfers:.2f}")
 print(f"Gain with transfers            : {gain_percent_with_transfers:.1f}%")
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+#
+# Charts with last 7 and 30 days of BTC/ETH ratio history
+#
+
+fig, ax = plt.subplots(nrows=1, ncols=2, sharey=False, figsize=(15,5))
+ax[0].set(title=f"BTC / ETH - Last Week")
+ax[0].plot(cb_btc.df.tail(7)['Time'], np.array(cb_btc.df.tail(7)['High']) / np.array(cb_eth.df.tail(7)['High']))
+anchor_ratio = wallet_0.get_anchor_ratio()
+if anchor_ratio:
+    ax[0].plot(cb_btc.df.tail(7)['Time'], np.full(7, anchor_ratio))
+    ax[0].plot(cb_btc.df.tail(7)['Time'], np.full(7, anchor_ratio * 1.01), color='red')
+    ax[0].plot(cb_btc.df.tail(7)['Time'], np.full(7, anchor_ratio * .99), color='red')
+ax[0].set_xlabel('Time')
+ax[0].set_xticks(cb_btc.df.tail(7)['Time'][1::2])
+ax[0].set_ylabel('High')
+ax[1].set(title=f"BTC / ETH - Last Month")
+ax[1].plot(cb_btc.df.tail(30)['Time'], np.array(cb_btc.df.tail(30)['High']) / np.array(cb_eth.df.tail(30)['High']))
+if anchor_ratio:
+    ax[1].plot(cb_btc.df.tail(30)['Time'], np.full(30, anchor_ratio))
+    ax[1].plot(cb_btc.df.tail(30)['Time'], np.full(30, anchor_ratio * 1.01), color='red')
+    ax[1].plot(cb_btc.df.tail(30)['Time'], np.full(30, anchor_ratio * .99), color='red')
+ax[1].set_xlabel('Time')
+ax[1].set_xticks(cb_btc.df.tail(30)['Time'][1::6])
+ax[1].set_ylabel('High')
+plt.savefig("BTC-ETH ratio.png")
+sendPhoto("BTC-ETH ratio.png")
