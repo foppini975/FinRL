@@ -226,6 +226,7 @@ class Wallet:
         self.df[f"{market_name} {self.VALUE_TAG}"] = 0
         self.start_date = start_date
         self.market_list = [market_name]
+        self.anchor_ratio = None
 
     def add_column(self, cb_df, market_name):
         if market_name in self.market_list:
@@ -284,19 +285,19 @@ class Wallet:
                                   then the whole available amount is transfered
                                 - if None, the whole available amount is transfered to the other market
         """
-        anchor_ratio = None
+        self.anchor_ratio = None
         return_message = None
         # for index, row in self.df.iterrows():
         for index in range(self.df.shape[0]):
             row = self.df.iloc[index]
             date_string = row['Time'].strftime("%Y-%m-%d")
-            if anchor_ratio is None:
-                anchor_ratio = row["BTC-EUR Close"] / row["ETH-EUR Close"]
-                self.df.loc[self.df['Time'] == datetime.strptime(date_string, '%Y-%m-%d'), "BTC/ETH Ratio"] = anchor_ratio
+            if self.anchor_ratio is None:
+                self.anchor_ratio = row["BTC-EUR Close"] / row["ETH-EUR Close"]
+                self.df.loc[self.df['Time'] == datetime.strptime(date_string, '%Y-%m-%d'), "BTC/ETH Ratio"] = self.anchor_ratio
                 continue
             current_ratio = row["BTC-EUR Close"] / row["ETH-EUR Close"]
             self.df.loc[self.df['Time'] == datetime.strptime(date_string, '%Y-%m-%d'), "BTC/ETH Ratio"] = current_ratio
-            if current_ratio >= anchor_ratio * (1 + threshold):
+            if current_ratio >= self.anchor_ratio * (1 + threshold):
                 # BTC is HIGH --> transfer from BTC to ETH
                 # transfer amount calculation
                 if transfer_amount_eur == None:
@@ -316,18 +317,18 @@ class Wallet:
                                 from_market="BTC-EUR",
                                 to_market="ETH-EUR",
                                 eur_amount = eur_amount)
-                print(f"{date_string} : Transfering BTC --> ETH - ratio: {current_ratio:.2f} > {anchor_ratio:.2f} - Final wallet value: EUR {self.get_final_value():.2f}")
+                print(f"{date_string} : Transfering BTC --> ETH - ratio: {current_ratio:.2f} > {self.anchor_ratio:.2f} - Final wallet value: EUR {self.get_final_value():.2f}")
                 btc_after = self.get_market_value(date_string=date_string, market_name='BTC-EUR')
                 eth_after = self.get_market_value(date_string=date_string, market_name='ETH-EUR')
                 print(f"BTC {btc_before['Amount']:7.4f} = {btc_before['Value']:7.2f} --> {btc_after['Amount']:7.4f} = {btc_after['Value']:7.2f}")
                 print(f"ETH {eth_before['Amount']:7.4f} = {eth_before['Value']:7.2f} --> {eth_after['Amount']:7.4f} = {eth_after['Value']:7.2f}")
-                anchor_ratio = current_ratio
+                self.anchor_ratio = current_ratio
                 if index == self.df.shape[0]-1:
                     # There is a transfer for today!
                     return_message = f"{date_string} : TRANSFER from BTC to ETH " + \
                         "(EUR {eur_amount} = BTC {btc_before['Amount']-btc_after['Amount']} = ETH {eth_after['Amount']-eth_before['Amount']}) " + \
                         "- ratio: {current_ratio:.4f}"
-            elif current_ratio <= anchor_ratio * (1 - threshold):
+            elif current_ratio <= self.anchor_ratio * (1 - threshold):
                 # ETH is HIGH --> transfer from ETH to BTC
                 # transfer amount calculation
                 if transfer_amount_eur == None:
@@ -347,12 +348,12 @@ class Wallet:
                                 from_market="ETH-EUR",
                                 to_market="BTC-EUR",
                                 eur_amount = eur_amount)
-                print(f"{date_string} : Transfering ETH --> BTC - ratio: {current_ratio:.2f} < {anchor_ratio:.2f} - Final value: {self.get_final_value():.2f}")
+                print(f"{date_string} : Transfering ETH --> BTC - ratio: {current_ratio:.2f} < {self.anchor_ratio:.2f} - Final value: {self.get_final_value():.2f}")
                 btc_after = self.get_market_value(date_string=date_string, market_name='BTC-EUR')
                 eth_after = self.get_market_value(date_string=date_string, market_name='ETH-EUR')
                 print(f"BTC {btc_before['Amount']:7.4f} = {btc_before['Value']:7.2f} --> {btc_after['Amount']:7.4f} = {btc_after['Value']:7.2f}")
                 print(f"ETH {eth_before['Amount']:7.4f} = {eth_before['Value']:7.2f} --> {eth_after['Amount']:7.4f} = {eth_after['Value']:7.2f}")
-                anchor_ratio = current_ratio
+                self.anchor_ratio = current_ratio
                 if index == self.df.shape[0]-1:
                     # There is a transfer for today!
                     return_message = f"{date_string} : TRANSFER from ETH to BTC " + \
@@ -360,4 +361,5 @@ class Wallet:
                         "- ratio: {current_ratio:.4f}"
         return return_message
 
-
+    def get_anchor_ratio(self):
+        return self.anchor_ratio
