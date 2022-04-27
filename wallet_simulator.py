@@ -23,10 +23,11 @@ cb_eth.loadHistory(datetime(2017, 5, 1), today_datetime)
 
 ETH_T0 = 0.79380042
 BTC_T0 = 0.03683716
-wallet_0 = Wallet(cb_btc.df, market_name='BTC-EUR')
+wallet_0 = Wallet(cb_btc.df, market_name='BTC-EUR', start_date='2021-01-01')
 wallet_0.add_column(cb_df=cb_eth.df, market_name='ETH-EUR')
-wallet_0.set_asset(date_string='2022-01-01', market_name='ETH-EUR', amount=ETH_T0)
-wallet_0.set_asset(date_string='2022-01-01', market_name='BTC-EUR', amount=BTC_T0)
+wallet_0.set_asset(date_string='2021-01-01', market_name='ETH-EUR', amount=ETH_T0)
+wallet_0.set_asset(date_string='2021-01-01', market_name='BTC-EUR', amount=BTC_T0)
+
 wallet_0.df["Wallet Value No Sim"] = wallet_0.df["Wallet Value"]
 
 t0_value = wallet_0.get_total_value('2022-04-22')
