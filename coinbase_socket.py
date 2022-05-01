@@ -6,6 +6,18 @@ import pandas as pd
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import pytz
+import telepot
+from mysecrets import Secrets
+
+# Telegram
+bot = telepot.Bot(Secrets.TELEGRAM_TOKEN)
+
+def sendMessageToTelegram(text):
+    bot.sendMessage(Secrets.TELEGRAM_CHANNEL_ID, text)
+
+def sendPhoto(image_filename):
+    bot.sendPhoto(Secrets.TELEGRAM_CHANNEL_ID, photo=open(image_filename, 'rb'))
+
 
 logger = logging.getLogger("Coinbase Socket")
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,6 +43,8 @@ TIMESTAMP = 'timestamp'
 SEQUENCE_NUMBER = 'sequence'
 
 RATIO_THRESHOLD = .01
+
+PLOT_HISTORY_HOURS = 6
 
 class CoinbaseSocket:
 
@@ -137,7 +151,7 @@ class CoinbaseSocket:
                 self.msg_df[col] = ''
         self.msg_df = self.msg_df.append(new_msg_df, ignore_index=True)
         utc_now = pytz.utc.localize(datetime.utcnow())
-        min_time_utc = pd.to_datetime(utc_now-timedelta(hours=6), utc=True)
+        min_time_utc = pd.to_datetime(utc_now-timedelta(hours=PLOT_HISTORY_HOURS), utc=True)
         self.msg_df = self.msg_df.drop(self.msg_df[self.msg_df[MSG_TIME] < min_time_utc].index)
         # update latest_values df
         new_latest_df = self.latest_values_to_df()
@@ -199,7 +213,7 @@ class CoinbaseSocket:
 def get_delta(a, b):
     return abs(a-b)/min(a,b)
 
-def plot_figure(cb_socket):
+def plot_figure(cb_socket, picture_filename):
     fig, ax = plt.subplots(nrows=1, ncols=3, sharey=False, figsize=(18,6))
     ax[0].set(title=f"BTC {100*get_delta(cb_socket.latest_values[BTC_EUR][SELL_SIDE],cb_socket.latest_values['BTC-EUR']['buy']):.3f}%")
     ax[0].axhline(y=cb_socket.latest_values[BTC_EUR][SELL_SIDE], color='r', linestyle='-', label = 'sell')
@@ -215,17 +229,17 @@ def plot_figure(cb_socket):
     ax[1].get_xaxis().set_visible(False)
     ax[1].set_ylabel('EUR')
     ax[1].legend()
-    ax[2].set(title=f"Ratio {cb_socket.latest_values['timestamp']}")
-    ax[2].axhline(y=1.01*cb_socket.latest_values['BTC-ETH-ratio']['btc-sell']['anchor'], color='r', linestyle=':', label = 'btc-sell threshold')
-    ax[2].axhline(y=cb_socket.latest_values['BTC-ETH-ratio']['btc-sell']['latest'], color='r', linestyle='-', label = 'btc-sell latest')
-    ax[2].axhline(y=.99*cb_socket.latest_values['BTC-ETH-ratio']['eth-sell']['anchor'], color='b', linestyle=':', label = 'eth-sell threshold')
-    ax[2].axhline(y=cb_socket.latest_values['BTC-ETH-ratio']['eth-sell']['latest'], color='b', linestyle='-', label = 'eth-sell latest')
+    ax[2].set(title=f"Ratio {cb_socket.latest_values[TIMESTAMP]}")
+    ax[2].axhline(y=1.01*cb_socket.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR], color='r', linestyle=':', label = 'btc-sell threshold')
+    ax[2].axhline(y=cb_socket.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST], color='r', linestyle='-', label = 'btc-sell latest')
+    ax[2].axhline(y=.99*cb_socket.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR], color='b', linestyle=':', label = 'eth-sell threshold')
+    ax[2].axhline(y=cb_socket.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST], color='b', linestyle='-', label = 'eth-sell latest')
     ax[2].autoscale(enable=True, axis='both', tight=None)
     ax[2].get_xaxis().set_visible(False)
     ax[2].legend()
-    plt.savefig("BTC-ETH realtime ratio.png")
+    plt.savefig(picture_filename)
 
-def plot_figure_2(cb_socket):
+def plot_figure_2(cb_socket, picture_filename):
     fig, ax = plt.subplots(nrows=1, ncols=3, sharey=False, figsize=(18,6))
     ax[0].set(title=f"BTC {100*get_delta(cb_socket.latest_values[BTC_EUR][SELL_SIDE],cb_socket.latest_values[BTC_EUR][BUY_SIDE]):.3f}%")
     ax[0].plot(cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == BTC_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][MSG_TIME], 
@@ -247,7 +261,7 @@ def plot_figure_2(cb_socket):
     ax[1].autoscale(enable=True, axis='both', tight=None)
     ax[1].set_ylabel('EUR')
     ax[1].legend()
-    ax[2].set(title=f"Ratio {cb_socket.latest_values['timestamp']}")
+    ax[2].set(title=f"Ratio {cb_socket.latest_values[LATEST]}")
     ax[2].plot(cb_socket.latest_values_df[MSG_TIME], 
         cb_socket.latest_values_df['RATIO-BTC sell latest'],
         color='r', linestyle='-', label = 'BTC sell latest')
@@ -263,7 +277,7 @@ def plot_figure_2(cb_socket):
 
     ax[2].autoscale(enable=True, axis='both', tight=None)
     ax[2].legend()
-    plt.savefig("BTC-ETH realtime ratio 2.png")
+    plt.savefig(picture_filename)
 
 if __name__ == "__main__":
     df_lock = Lock()
@@ -281,6 +295,8 @@ if __name__ == "__main__":
         if counter >= 5:
             counter = 0
             df_lock.acquire()
-            plot_figure(cb_socket)
-            plot_figure_2(cb_socket)
+            plot_figure(cb_socket, "BTC-ETH realtime ratio.png")
+            plot_figure_2(cb_socket, "BTC-ETH realtime ratio 2.png")
+            sendPhoto("BTC-ETH realtime ratio.png")
+            sendPhoto("BTC-ETH realtime ratio 2.png")
             df_lock.release()
