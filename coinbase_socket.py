@@ -292,7 +292,7 @@ if __name__ == "__main__":
         logger.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         time.sleep(60)
         counter += 1
-        if counter >= 5:
+        if counter >= 60:
             counter = 0
             df_lock.acquire()
             plot_figure(cb_socket, "BTC-ETH realtime ratio.png")
