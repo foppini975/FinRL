@@ -43,6 +43,8 @@ LATEST = 'latest'
 MSG_TIME = 'time'
 TIMESTAMP = 'timestamp'
 SEQUENCE_NUMBER = 'sequence'
+TRANSFER_BTC_TO_ETH = 'BTC to ETH'
+TRANSFER_ETH_TO_BTC = 'ETH to BTC'
 
 RATIO_THRESHOLD = .01
 
@@ -56,6 +58,30 @@ class CoinbaseSocket:
                         "product_ids": ['BTC-EUR', 'ETH-EUR'],
                         "channels": ["matches"],
                     }
+
+    def _load_latest_values(self):
+        with open(self.state_filename, 'r') as openfile:
+            self.latest_values = json.load(openfile)
+
+    def _save_latest_values(self):
+        with open(self.state_filename, "w") as outfile:
+            json.dump(self.latest_values, outfile)
+
+    def _get_transfer_message(self, transfer):
+        if transfer == TRANSFER_BTC_TO_ETH:
+            delta_ratio = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST] - self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR]
+            multiplier = int(delta_ratio / self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] / RATIO_THRESHOLD)
+            return f"{self.latest_values[TIMESTAMP]} : TRANSFER from BTC to ETH " + \
+                f"- (EUR {multiplier*100:.2f} = BTC {multiplier*100/self.latest_values[BTC_EUR][SELL_SIDE]} " + \
+                f"= ETH {multiplier*100/self.latest_values[ETH_EUR][BUY_SIDE]}) " + \
+                f"- ratio: {self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST]:.4f} Δ={delta_ratio:.2f}"
+        elif transfer == TRANSFER_ETH_TO_BTC:
+            delta_ratio = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] - self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
+            multiplier = int(delta_ratio / self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] / RATIO_THRESHOLD)
+            return f"{self.latest_values[TIMESTAMP]} : TRANSFER from ETH to BTC " + \
+                f"- (EUR {multiplier*100:.2f} = BTC {multiplier*100/self.latest_values[BTC_EUR][BUY_SIDE]} " + \
+                f"= ETH {multiplier*100/self.latest_values[ETH_EUR][SELL_SIDE]}) " + \
+                f"- ratio: {self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]:.4f} Δ={delta_ratio:.2f}"
 
     def latest_values_to_df(self):
         return pd.DataFrame(data={
@@ -83,6 +109,12 @@ class CoinbaseSocket:
             },
             TIMESTAMP: None
         }
+        self.state_filename = "coinbase_socket.json"
+        try:
+            logger.info(f"Loading initial values from file {self.state_filename}")
+            self._load_latest_values()
+        except FileNotFoundError:
+            logger.warning(f"File {self.state_filename} not found, starting with blank values")
         # message dataframe
         self.msg_df = pd.DataFrame()
         # latest value dataframe
@@ -120,6 +152,7 @@ class CoinbaseSocket:
                         # anchor check
                         if self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] == None:
                             self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST]
+                            self._save_latest_values()
                         # we only sell BTC if the ratio goes higher than the anchor
                         elif self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST] > self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR]:
                             delta_ratio = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST] - self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR]
@@ -127,6 +160,8 @@ class CoinbaseSocket:
                                 logger.info("Ratio is higher than threshold => Sell BTC and Buy ETH !")
                                 self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST]
                                 self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
+                                self._save_latest_values()                                
+                                sendMessageToTelegram(self._get_transfer_message(TRANSFER_BTC_TO_ETH))
         elif (msg[PRODUCT_ID] == ETH_EUR and side == SELL_SIDE) or \
             (msg[PRODUCT_ID] == BTC_EUR and side == BUY_SIDE):
                 # ETH to BTC
@@ -137,6 +172,7 @@ class CoinbaseSocket:
                         # anchor check
                         if self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] == None:
                             self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
+                            self._save_latest_values()
                         # we only sell ETH if the ratio goes lower than the anchor
                         elif self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST] < self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR]:
                             delta_ratio = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] - self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
@@ -144,6 +180,8 @@ class CoinbaseSocket:
                                 logger.info("Ratio is lower than threshold => Sell ETH and Buy BTC !")
                                 self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST]
                                 self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
+                                self._save_latest_values()
+                                sendMessageToTelegram(self._get_transfer_message(TRANSFER_ETH_TO_BTC))
         self.df_lock.acquire()
         # update msg dataframes
         new_msg_df = pd.json_normalize(msg)
@@ -339,8 +377,8 @@ if __name__ == "__main__":
         if counter >= 60:
             counter = 0
             df_lock.acquire()
-            plot_figure(cb_socket, "BTC-ETH realtime ratio.png")
+            # plot_figure(cb_socket, "BTC-ETH realtime ratio.png")
+            # sendPhoto("BTC-ETH realtime ratio.png")
             plot_figure_2(cb_socket, "BTC-ETH realtime ratio 2.png")
-            sendPhoto("BTC-ETH realtime ratio.png")
             sendPhoto("BTC-ETH realtime ratio 2.png")
             df_lock.release()
