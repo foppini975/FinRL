@@ -3,8 +3,10 @@ from os import stat
 from threading import Thread, Lock
 from websocket import create_connection, WebSocketConnectionClosedException
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import pytz
 import telepot
 from mysecrets import Secrets
@@ -146,6 +148,8 @@ class CoinbaseSocket:
         # update msg dataframes
         new_msg_df = pd.json_normalize(msg)
         new_msg_df[MSG_TIME] = pd.to_datetime(new_msg_df[MSG_TIME])
+        # conversion to float
+        new_msg_df[PRICE] = pd.to_numeric(new_msg_df[PRICE], errors='coerce')
         for col in new_msg_df.columns:
             if col not in self.msg_df.columns:
                 self.msg_df[col] = ''
@@ -242,26 +246,48 @@ def plot_figure(cb_socket, picture_filename):
 def plot_figure_2(cb_socket, picture_filename):
     fig, ax = plt.subplots(nrows=1, ncols=3, sharey=False, figsize=(18,6))
     ax[0].set(title=f"BTC {100*get_delta(cb_socket.latest_values[BTC_EUR][SELL_SIDE],cb_socket.latest_values[BTC_EUR][BUY_SIDE]):.3f}%")
-    ax[0].plot(cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == BTC_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][MSG_TIME], 
-        cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == BTC_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][PRICE],
+    x_values_btc_sell = cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == BTC_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][MSG_TIME]
+    x_points_btc_sell = x_values_btc_sell.shape[0]
+    x_values_btc_buy = cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == BTC_EUR) & (cb_socket.msg_df[SIDE] == BUY_SIDE)][MSG_TIME]
+    # x_points_btc_buy = x_values_btc_buy.shape[0]
+    y_values_btc_sell = cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == BTC_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][PRICE]
+    ax[0].plot(x_values_btc_sell, 
+        y_values_btc_sell,
         color='b', label = 'sell')
-    ax[0].plot(cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == BTC_EUR) & (cb_socket.msg_df[SIDE] == BUY_SIDE)][MSG_TIME],
+    ax[0].plot(x_values_btc_buy,
         cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == BTC_EUR) & (cb_socket.msg_df[SIDE] == BUY_SIDE)][PRICE],
         color='r', label = 'buy')
+    # set x_ticks and format
+    ax[0].set_xticks(x_values_btc_sell[1::int(x_points_btc_sell/4)])
+    myFmt = mdates.DateFormatter('%H:%M')
+    ax[0].xaxis.set_major_formatter(myFmt)
+    # y_ticks
+    delta_y_btc_sell = y_values_btc_sell.max()-y_values_btc_sell.min()
+    ax[0].set_yticks(np.arange(y_values_btc_sell.min(), y_values_btc_sell.max() + delta_y_btc_sell/50, delta_y_btc_sell/10))
     ax[0].autoscale(enable=True, axis='both', tight=None)
     ax[0].set_ylabel('EUR')
     ax[0].legend()
     ax[1].set(title=f"ETH {100*get_delta(cb_socket.latest_values[ETH_EUR][SELL_SIDE], cb_socket.latest_values[ETH_EUR][BUY_SIDE]):.3f}%")
-    ax[1].plot(cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == ETH_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][MSG_TIME], 
-        cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == ETH_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][PRICE],
+    x_values_eth_sell = cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == ETH_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][MSG_TIME]
+    x_points_eth_sell = x_values_eth_sell.shape[0]
+    x_values_eth_buy = cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == ETH_EUR) & (cb_socket.msg_df[SIDE] == BUY_SIDE)][MSG_TIME]
+    y_values_eth_sell = cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == ETH_EUR) & (cb_socket.msg_df[SIDE] == SELL_SIDE)][PRICE]
+    ax[1].plot(x_values_eth_sell, 
+        y_values_eth_sell,
         color='b', label = 'sell')
-    ax[1].plot(cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == ETH_EUR) & (cb_socket.msg_df[SIDE] == BUY_SIDE)][MSG_TIME],
+    ax[1].plot(x_values_eth_buy,
         cb_socket.msg_df[(cb_socket.msg_df[PRODUCT_ID] == ETH_EUR) & (cb_socket.msg_df[SIDE] == BUY_SIDE)][PRICE],
         color='r', label = 'buy')
+    # set x_ticks and format
+    ax[1].set_xticks(x_values_eth_sell[1::int(x_points_eth_sell/4)])
+    ax[1].xaxis.set_major_formatter(myFmt)
+    # y_ticks
+    delta_y_eth_sell = y_values_eth_sell.max()-y_values_eth_sell.min()
+    ax[1].set_yticks(np.arange(y_values_eth_sell.min(), y_values_eth_sell.max() + delta_y_eth_sell/50, delta_y_eth_sell/10))
     ax[1].autoscale(enable=True, axis='both', tight=None)
     ax[1].set_ylabel('EUR')
     ax[1].legend()
-    ax[2].set(title=f"Ratio {cb_socket.latest_values_df.tail(1)[TIMESTAMP]}")
+    ax[2].set(title=f'Ratio {cb_socket.latest_values_df.tail(1)[TIMESTAMP].dt.strftime("%m/%d %H:%M:%S").values[0]}')
     ax[2].plot(cb_socket.latest_values_df[TIMESTAMP], 
         cb_socket.latest_values_df['RATIO-BTC sell latest'],
         color='r', linestyle='-', label = 'BTC sell latest')
@@ -274,7 +300,25 @@ def plot_figure_2(cb_socket, picture_filename):
     ax[2].plot(cb_socket.latest_values_df[TIMESTAMP], 
         (1-RATIO_THRESHOLD) * cb_socket.latest_values_df['RATIO-ETH sell anchor'],
         color='b', linestyle=':', label = 'ETH sell threshold')
-
+    # set x_ticks and format
+    x_points = cb_socket.latest_values_df[TIMESTAMP].shape[0]
+    ax[2].set_xticks(cb_socket.latest_values_df[TIMESTAMP][1::int(x_points/4)])
+    ax[2].xaxis.set_major_formatter(myFmt)
+    # y ticks
+    y_max = max(
+        cb_socket.latest_values_df['RATIO-BTC sell latest'].max(),
+        (1+RATIO_THRESHOLD) * cb_socket.latest_values_df['RATIO-BTC sell anchor'].max(),
+        cb_socket.latest_values_df['RATIO-ETH sell latest'].max(),
+        (1-RATIO_THRESHOLD) * cb_socket.latest_values_df['RATIO-ETH sell anchor'].max()
+    )
+    y_min = min(
+        cb_socket.latest_values_df['RATIO-BTC sell latest'].min(),
+        (1+RATIO_THRESHOLD) * cb_socket.latest_values_df['RATIO-BTC sell anchor'].min(),
+        cb_socket.latest_values_df['RATIO-ETH sell latest'].min(),
+        (1-RATIO_THRESHOLD) * cb_socket.latest_values_df['RATIO-ETH sell anchor'].min()
+    )
+    delta_y_ratio = y_max-y_min
+    ax[2].set_yticks(np.arange(y_min, y_max+delta_y_ratio/50, delta_y_ratio/10))
     ax[2].autoscale(enable=True, axis='both', tight=None)
     ax[2].legend()
     plt.savefig(picture_filename)
