@@ -155,7 +155,7 @@ class CoinbaseSocket:
         self.msg_df = self.msg_df.drop(self.msg_df[self.msg_df[MSG_TIME] < min_time_utc].index)
         # update latest_values df
         new_latest_df = self.latest_values_to_df()
-        new_latest_df[MSG_TIME] = pd.to_datetime(new_msg_df[MSG_TIME])
+        new_latest_df[TIMESTAMP] = pd.to_datetime(new_msg_df[TIMESTAMP])
         for col in new_latest_df.columns:
             if col not in self.latest_values_df.columns:
                 self.latest_values_df[col] = ''
