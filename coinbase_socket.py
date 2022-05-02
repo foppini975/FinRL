@@ -57,7 +57,7 @@ class CoinbaseSocket:
 
     def latest_values_to_df(self):
         return pd.DataFrame(data={
-            MSG_TIME: self.latest_values[TIMESTAMP],
+            TIMESTAMP: self.latest_values[TIMESTAMP],
             'BTC-EUR sell': self.latest_values[BTC_EUR][SELL_SIDE],
             'BTC-EUR buy': self.latest_values[BTC_EUR][BUY_SIDE],
             'RATIO-BTC sell latest': self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST],
@@ -160,7 +160,7 @@ class CoinbaseSocket:
             if col not in self.latest_values_df.columns:
                 self.latest_values_df[col] = ''
         self.latest_values_df = self.latest_values_df.append(new_latest_df, ignore_index=True)
-        self.latest_values_df = self.latest_values_df.drop(self.latest_values_df[self.latest_values_df[MSG_TIME] < min_time_utc].index)
+        self.latest_values_df = self.latest_values_df.drop(self.latest_values_df[self.latest_values_df[TIMESTAMP] < min_time_utc].index)
         self.df_lock.release()
 
     def main(self):
@@ -261,17 +261,17 @@ def plot_figure_2(cb_socket, picture_filename):
     ax[1].autoscale(enable=True, axis='both', tight=None)
     ax[1].set_ylabel('EUR')
     ax[1].legend()
-    ax[2].set(title=f"Ratio {cb_socket.latest_values[LATEST]}")
-    ax[2].plot(cb_socket.latest_values_df[MSG_TIME], 
+    ax[2].set(title=f"Ratio {cb_socket.latest_values_df.tail(1)[TIMESTAMP]}")
+    ax[2].plot(cb_socket.latest_values_df[TIMESTAMP], 
         cb_socket.latest_values_df['RATIO-BTC sell latest'],
         color='r', linestyle='-', label = 'BTC sell latest')
-    ax[2].plot(cb_socket.latest_values_df[MSG_TIME], 
+    ax[2].plot(cb_socket.latest_values_df[TIMESTAMP], 
         (1+RATIO_THRESHOLD) * cb_socket.latest_values_df['RATIO-BTC sell anchor'],
         color='r', linestyle=':', label = 'BTC sell threshold')
-    ax[2].plot(cb_socket.latest_values_df[MSG_TIME], 
+    ax[2].plot(cb_socket.latest_values_df[TIMESTAMP], 
         cb_socket.latest_values_df['RATIO-ETH sell latest'],
         color='b', linestyle='-', label = 'ETH sell latest')
-    ax[2].plot(cb_socket.latest_values_df[MSG_TIME], 
+    ax[2].plot(cb_socket.latest_values_df[TIMESTAMP], 
         (1-RATIO_THRESHOLD) * cb_socket.latest_values_df['RATIO-ETH sell anchor'],
         color='b', linestyle=':', label = 'ETH sell threshold')
 
