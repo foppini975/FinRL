@@ -49,6 +49,7 @@ TRANSFER_ETH_TO_BTC = 'ETH to BTC'
 RATIO_THRESHOLD = .01
 
 PLOT_HISTORY_HOURS = 6
+FIGURE_PUBLICATION_HOURS = 6
 
 class CoinbaseSocket:
 
@@ -368,13 +369,13 @@ if __name__ == "__main__":
     counter = 0
     while True:
         logger.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        logger.info(f"{counter}")
+        logger.info(f"{counter} / {60 * FIGURE_PUBLICATION_HOURS}")
         logger.info(f"Latest values: {cb_socket.latest_values}")
         logger.info(f"Dataframe rows: msgs: {cb_socket.msg_df.shape[0]} - latest: {cb_socket.latest_values_df.shape[0]}")
         logger.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         time.sleep(60)
         counter += 1
-        if counter >= 60:
+        if counter >= 60 * FIGURE_PUBLICATION_HOURS:
             counter = 0
             df_lock.acquire()
             # plot_figure(cb_socket, "BTC-ETH realtime ratio.png")
