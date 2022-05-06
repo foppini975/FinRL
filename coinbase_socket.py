@@ -208,10 +208,13 @@ class CoinbaseSocket:
 
     def main(self):
 
-        def websocket_thread():
-
+        def websocket_connect_and_subscribe():
             self.ws = create_connection(self.ENDPOINT)
             self.ws.send(json.dumps(self.SUBSCRIPTION_1))
+
+        def websocket_thread():
+
+            websocket_connect_and_subscribe()
 
             thread_keepalive.start()
             while not self.thread_running:
@@ -226,7 +229,13 @@ class CoinbaseSocket:
                     print("{} - data: {}".format(e, data))
                 except Exception as e:
                     print(e)
-                    print("{} - data: {}".format(e, data))
+                    if str(e) == "Connection is already closed.":
+                        try:
+                            if self.ws:
+                                self.ws.close()
+                        except WebSocketConnectionClosedException:
+                            logger.error("Exception: WebSocketConnectionClosedException")
+                        websocket_connect_and_subscribe()
                 else:
                     if msg[MSG_TYPE] not in [MSG_TYPE_MATCH, MSG_TYPE_LAST_MATCH]:
                         logging.info(f">>>>>>> Message type: {msg[MSG_TYPE]}")
@@ -235,11 +244,13 @@ class CoinbaseSocket:
                         self.update_latest_values(msg)
                     else:
                         pass
-
+            logger.warning("Thread running is {self.thread_running}")
+            logger.warning("Closing socket")
             try:
                 if self.ws:
                     self.ws.close()
             except WebSocketConnectionClosedException:
+                logger.error("Exception: WebSocketConnectionClosedException")
                 pass
             finally:
                 thread_keepalive.join()
