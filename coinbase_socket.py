@@ -10,11 +10,20 @@ import matplotlib.dates as mdates
 import pytz
 import telepot
 from mysecrets import Secrets
+import argparse
+
+parser = argparse.ArgumentParser(description='Coinbase websocket monitor')
+parser.add_argument('--verbose', help='set debug verbosity', action='store_true')
+parser.add_argument("--dont-send", action="store_true", help="messages are not sent to any channel")
+parser.add_argument('--fig-pub-hours', default=6, type=int, help='figure publication time (in hours)')
+parser.add_argument('--show-info-minutes', default=1, type=int, help='value display time (in minutes)')
+
+args = parser.parse_args()
 
 # Telegram
 bot = telepot.Bot(Secrets.TELEGRAM_TOKEN)
 
-def sendMessageToTelegram(text):
+def sendMessageToTelegram(text):    
     bot.sendMessage(Secrets.TELEGRAM_CHANNEL_ID, text)
 
 def sendPhoto(image_filename):
@@ -23,7 +32,11 @@ def sendPhoto(image_filename):
 
 logger = logging.getLogger("Coinbase Socket")
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger.setLevel(logging.DEBUG)
+if args.verbose:
+    logger.setLevel(logging.DEBUG)
+    logger.debug("Debug logging enabled")
+else:
+    logger.setLevel(logging.INFO)
 
 PRODUCT_ID = 'product_id'
 BTC_EUR = 'BTC-EUR'
@@ -120,6 +133,9 @@ class CoinbaseSocket:
         self.msg_df = pd.DataFrame()
         # latest value dataframe
         self.latest_values_df = pd.DataFrame()
+        # message counters
+        self.total_msg_counter = 0
+        self.partial_msg_counter = 0
 
     def update_latest_values(self, msg):
         # let's invert the side
@@ -130,18 +146,18 @@ class CoinbaseSocket:
             self.latest_values[TIMESTAMP] = msg[MSG_TIME]
             if self.latest_values[BTC_EUR][SEQUENCE_NUMBER]:
                 if msg[SEQUENCE_NUMBER] == self.latest_values[BTC_EUR][SEQUENCE_NUMBER]:
-                    logger.info(f"Sequence number repeated: {msg[SEQUENCE_NUMBER]}")
+                    logger.debug(f"Sequence number repeated: {msg[SEQUENCE_NUMBER]}")
                 elif msg[SEQUENCE_NUMBER] > self.latest_values[BTC_EUR][SEQUENCE_NUMBER] + 1:
-                    logger.info(f"Sequence number dropped: {msg[SEQUENCE_NUMBER] - self.latest_values[BTC_EUR][SEQUENCE_NUMBER] + 1}")
+                    logger.debug(f"Sequence number dropped: {msg[SEQUENCE_NUMBER] - self.latest_values[BTC_EUR][SEQUENCE_NUMBER] + 1}")
             self.latest_values[BTC_EUR][SEQUENCE_NUMBER] = msg[SEQUENCE_NUMBER]
         elif msg[PRODUCT_ID] == ETH_EUR:
             self.latest_values[ETH_EUR][side] = price
             self.latest_values[TIMESTAMP] = msg[MSG_TIME]
             if self.latest_values[ETH_EUR][SEQUENCE_NUMBER]:
                 if msg[SEQUENCE_NUMBER] == self.latest_values[ETH_EUR][SEQUENCE_NUMBER]:
-                    logger.info(f"Sequence number repeated: {msg[SEQUENCE_NUMBER]}")
+                    logger.debug(f"Sequence number repeated: {msg[SEQUENCE_NUMBER]}")
                 elif msg[SEQUENCE_NUMBER] > self.latest_values[ETH_EUR][SEQUENCE_NUMBER] + 1:
-                    logger.info(f"Sequence number dropped: {msg[SEQUENCE_NUMBER] - self.latest_values[ETH_EUR][SEQUENCE_NUMBER] + 1}")
+                    logger.debug(f"Sequence number dropped: {msg[SEQUENCE_NUMBER] - self.latest_values[ETH_EUR][SEQUENCE_NUMBER] + 1}")
             self.latest_values[ETH_EUR][SEQUENCE_NUMBER] = msg[SEQUENCE_NUMBER]
         if (msg[PRODUCT_ID] == BTC_EUR and side == SELL_SIDE) or \
             (msg[PRODUCT_ID] == ETH_EUR and side == BUY_SIDE):
@@ -161,8 +177,11 @@ class CoinbaseSocket:
                                 logger.info("Ratio is higher than threshold => Sell BTC and Buy ETH !")
                                 self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST]
                                 self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
-                                self._save_latest_values()                                
-                                sendMessageToTelegram(self._get_transfer_message(TRANSFER_BTC_TO_ETH))
+                                self._save_latest_values()
+                                tgm_msg = self._get_transfer_message(TRANSFER_BTC_TO_ETH)
+                                logger.info(f"Telegram msg [skip={args.dont_send}]: {tgm_msg}")
+                                if not args.dont_send:
+                                    sendMessageToTelegram(tgm_msg)
         elif (msg[PRODUCT_ID] == ETH_EUR and side == SELL_SIDE) or \
             (msg[PRODUCT_ID] == BTC_EUR and side == BUY_SIDE):
                 # ETH to BTC
@@ -182,7 +201,10 @@ class CoinbaseSocket:
                                 self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST]
                                 self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
                                 self._save_latest_values()
-                                sendMessageToTelegram(self._get_transfer_message(TRANSFER_ETH_TO_BTC))
+                                tgm_msg = self._get_transfer_message(TRANSFER_ETH_TO_BTC)
+                                logger.info(f"Telegram msg [skip={args.dont_send}]: {tgm_msg}")
+                                if not args.dont_send:
+                                    sendMessageToTelegram(tgm_msg)
         self.df_lock.acquire()
         # update msg dataframes
         new_msg_df = pd.json_normalize(msg)
@@ -238,9 +260,12 @@ class CoinbaseSocket:
                         websocket_connect_and_subscribe()
                 else:
                     if msg[MSG_TYPE] not in [MSG_TYPE_MATCH, MSG_TYPE_LAST_MATCH]:
-                        logging.info(f">>>>>>> Message type: {msg[MSG_TYPE]}")
+                        logging.debug(f">>>>>>> Message type: {msg[MSG_TYPE]}")
                     if msg[MSG_TYPE] in [MSG_TYPE_MATCH, MSG_TYPE_LAST_MATCH]:
-                        logger.info(msg)
+                        self.total_msg_counter += 1
+                        self.partial_msg_counter += 1
+                        logger.debug(f"Received new msg - partial counter: {self.partial_msg_counter} - total counter: {self.total_msg_counter}")
+                        logger.debug(msg)
                         self.update_latest_values(msg)
                     else:
                         pass
@@ -263,6 +288,12 @@ class CoinbaseSocket:
         thread = Thread(target=websocket_thread)
         thread_keepalive = Thread(target=websocket_keepalive)
         thread.start()
+    
+    def reset_partial_msg_counter(self):
+        self.partial_msg_counter = 0
+
+    def get_msg_counters(self):
+        return (self.partial_msg_counter, self.total_msg_counter, )
 
 def get_delta(a, b):
     return abs(a-b)/min(a,b)
@@ -378,19 +409,24 @@ if __name__ == "__main__":
     cb_socket = CoinbaseSocket(df_lock)
     cb_socket.main()
     counter = 0
+    loops_per_publication = int(60 * args.fig_pub_hours / args.show_info_minutes)
     while True:
         logger.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        logger.info(f"{counter} / {60 * FIGURE_PUBLICATION_HOURS}")
+        (partial_msg_cnt, total_msg_cnt, ) = cb_socket.get_msg_counters()
+        logger.info(f"{counter} / {loops_per_publication} - msgs in this loop: {partial_msg_cnt} - total msgs: {total_msg_cnt}")
         logger.info(f"Latest values: {cb_socket.latest_values}")
         logger.info(f"Dataframe rows: msgs: {cb_socket.msg_df.shape[0]} - latest: {cb_socket.latest_values_df.shape[0]}")
         logger.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        time.sleep(60)
+        time.sleep(60 * args.show_info_minutes)
         counter += 1
-        if counter >= 60 * FIGURE_PUBLICATION_HOURS:
+        if counter >= 60 * args.fig_pub_hours / args.show_info_minutes:
             counter = 0
             df_lock.acquire()
             # plot_figure(cb_socket, "BTC-ETH realtime ratio.png")
             # sendPhoto("BTC-ETH realtime ratio.png")
             plot_figure_2(cb_socket, "BTC-ETH realtime ratio 2.png")
-            sendPhoto("BTC-ETH realtime ratio 2.png")
+            image_filename = "BTC-ETH realtime ratio 2.png"
+            logger.info(f"Telegram picture [skip={args.dont_send}]: {image_filename}")
+            if not args.dont_send:
+                sendPhoto(image_filename)
             df_lock.release()
