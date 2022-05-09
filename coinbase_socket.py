@@ -11,12 +11,15 @@ import pytz
 import telepot
 from mysecrets import Secrets
 import argparse
+import sys
 
 parser = argparse.ArgumentParser(description='Coinbase websocket monitor')
 parser.add_argument('--verbose', help='set debug verbosity', action='store_true')
 parser.add_argument("--dont-send", action="store_true", help="messages are not sent to any channel")
 parser.add_argument('--fig-pub-hours', default=6, type=int, help='figure publication time (in hours)')
+parser.add_argument('--plot-history-hours', default=12, type=int, help='plot history time (in hours)')
 parser.add_argument('--show-info-minutes', default=1, type=int, help='value display time (in minutes)')
+parser.add_argument('--threshold', default=.01, type=float, help='current/anchor trigger threshold')
 
 args = parser.parse_args()
 
@@ -59,10 +62,10 @@ SEQUENCE_NUMBER = 'sequence'
 TRANSFER_BTC_TO_ETH = 'BTC to ETH'
 TRANSFER_ETH_TO_BTC = 'ETH to BTC'
 
-RATIO_THRESHOLD = .01
+RATIO_THRESHOLD = args.threshold
 
-PLOT_HISTORY_HOURS = 6
-FIGURE_PUBLICATION_HOURS = 6
+PLOT_HISTORY_HOURS = args.plot_history_hours
+FIGURE_PUBLICATION_HOURS = args.fig_pub_hours
 
 class CoinbaseSocket:
 
@@ -141,9 +144,11 @@ class CoinbaseSocket:
         # let's invert the side
         side = SELL_SIDE if msg[SIDE] == BUY_SIDE else BUY_SIDE
         price = float(msg[PRICE])
+        msg_time = msg[MSG_TIME]
+        # update latest values (price, time, seq time)
         if msg[PRODUCT_ID] == BTC_EUR:
             self.latest_values[BTC_EUR][side] = price
-            self.latest_values[TIMESTAMP] = msg[MSG_TIME]
+            self.latest_values[TIMESTAMP] = msg_time
             if self.latest_values[BTC_EUR][SEQUENCE_NUMBER]:
                 if msg[SEQUENCE_NUMBER] == self.latest_values[BTC_EUR][SEQUENCE_NUMBER]:
                     logger.debug(f"Sequence number repeated: {msg[SEQUENCE_NUMBER]}")
@@ -152,13 +157,14 @@ class CoinbaseSocket:
             self.latest_values[BTC_EUR][SEQUENCE_NUMBER] = msg[SEQUENCE_NUMBER]
         elif msg[PRODUCT_ID] == ETH_EUR:
             self.latest_values[ETH_EUR][side] = price
-            self.latest_values[TIMESTAMP] = msg[MSG_TIME]
+            self.latest_values[TIMESTAMP] = msg_time
             if self.latest_values[ETH_EUR][SEQUENCE_NUMBER]:
                 if msg[SEQUENCE_NUMBER] == self.latest_values[ETH_EUR][SEQUENCE_NUMBER]:
                     logger.debug(f"Sequence number repeated: {msg[SEQUENCE_NUMBER]}")
                 elif msg[SEQUENCE_NUMBER] > self.latest_values[ETH_EUR][SEQUENCE_NUMBER] + 1:
                     logger.debug(f"Sequence number dropped: {msg[SEQUENCE_NUMBER] - self.latest_values[ETH_EUR][SEQUENCE_NUMBER] + 1}")
             self.latest_values[ETH_EUR][SEQUENCE_NUMBER] = msg[SEQUENCE_NUMBER]
+        # update ratio
         if (msg[PRODUCT_ID] == BTC_EUR and side == SELL_SIDE) or \
             (msg[PRODUCT_ID] == ETH_EUR and side == BUY_SIDE):
                 # BTC to ETH (BTC sell side)
@@ -173,8 +179,9 @@ class CoinbaseSocket:
                         # we only sell BTC if the ratio goes higher than the anchor
                         elif self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST] > self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR]:
                             delta_ratio = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST] - self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR]
-                            if delta_ratio / self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] >= RATIO_THRESHOLD:
-                                logger.info("Ratio is higher than threshold => Sell BTC and Buy ETH !")
+                            increase_ratio = delta_ratio / self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR]
+                            if  increase_ratio >= RATIO_THRESHOLD:
+                                logger.info("Ratio {increase_ratio:.3f} is higher than threshold {RATIO_THRESHOLD} => Sell BTC and Buy ETH !")
                                 self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST]
                                 self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
                                 self._save_latest_values()
@@ -196,8 +203,9 @@ class CoinbaseSocket:
                         # we only sell ETH if the ratio goes lower than the anchor
                         elif self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST] < self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR]:
                             delta_ratio = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] - self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
-                            if delta_ratio / self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] >= RATIO_THRESHOLD:
-                                logger.info("Ratio is lower than threshold => Sell ETH and Buy BTC !")
+                            increase_ratio = delta_ratio / self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR]
+                            if increase_ratio >= RATIO_THRESHOLD:
+                                logger.info(f"Ratio {increase_ratio:.3f} is lower than threshold {RATIO_THRESHOLD} => Sell ETH and Buy BTC !")
                                 self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][BTC_SELL_SIDE][LATEST]
                                 self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][ANCHOR] = self.latest_values[BTC_TO_ETH_RATIO][ETH_SELL_SIDE][LATEST]
                                 self._save_latest_values()
@@ -231,7 +239,11 @@ class CoinbaseSocket:
     def main(self):
 
         def websocket_connect_and_subscribe():
-            self.ws = create_connection(self.ENDPOINT)
+            try:
+                self.ws = create_connection(self.ENDPOINT)
+            except:
+                logger.error(f"Unable to establish connection with {self.ENDPOINT}")
+                sys.exit(-1)
             self.ws.send(json.dumps(self.SUBSCRIPTION_1))
 
         def websocket_thread():
